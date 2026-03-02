@@ -1,0 +1,16 @@
+superadega:
+  provider: superadega
+  enabled: true
+
+# Exemplo para adicionar outro site no futuro:
+# lojasite:
+#   provider: generic_css
+#   enabled: true
+#   base_url: "https://www.exemplo.com.br"
+#   search_url_template: "https://www.exemplo.com.br/busca?q={query}"
+#   card_selector: ".product-card"
+#   card_name_selector: ".product-title"
+#   card_link_selector: "a"
+#   card_price_selector: ".product-price"
+#   product_price_selector: ".product-page-price"
+#   timeout_seconds: 20

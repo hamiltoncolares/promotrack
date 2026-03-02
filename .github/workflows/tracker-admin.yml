@@ -1,0 +1,170 @@
+name: Tracker Admin
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Acao administrativa"
+        required: true
+        default: "add"
+        type: choice
+        options:
+          - add
+          - update
+          - remove
+          - list
+      tracker_id:
+        description: "ID do tracker (obrigatorio para update/remove)"
+        required: false
+        type: string
+      wine_name:
+        description: "Nome do vinho (obrigatorio para add)"
+        required: false
+        type: string
+      site:
+        description: "Site configurado em config/sites.yaml"
+        required: false
+        type: string
+      start_date:
+        description: "Data inicial YYYY-MM-DD"
+        required: false
+        type: string
+      end_date:
+        description: "Data final YYYY-MM-DD"
+        required: false
+        type: string
+      days:
+        description: "Quantidade de dias (alternativa a start/end)"
+        required: false
+        type: string
+      activate:
+        description: "Ativar tracker (somente update)"
+        required: false
+        default: false
+        type: boolean
+      deactivate:
+        description: "Desativar tracker (add/update)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  admin:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Apply admin action
+        env:
+          ACTION: ${{ inputs.action }}
+          TRACKER_ID: ${{ inputs.tracker_id }}
+          WINE_NAME: ${{ inputs.wine_name }}
+          SITE: ${{ inputs.site }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          DAYS: ${{ inputs.days }}
+          ACTIVATE: ${{ inputs.activate }}
+          DEACTIVATE: ${{ inputs.deactivate }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$ACTION" == "list" ]]; then
+            python -m app.main cfg-list
+          elif [[ "$ACTION" == "add" ]]; then
+            if [[ -z "$WINE_NAME" ]]; then
+              echo "wine_name e obrigatorio para action=add" >&2
+              exit 1
+            fi
+            if [[ -z "$SITE" ]]; then
+              SITE="superadega"
+            fi
+
+            cmd=(python -m app.main cfg-add --wine "$WINE_NAME" --site "$SITE")
+            if [[ -n "$TRACKER_ID" ]]; then
+              cmd+=(--id "$TRACKER_ID")
+            fi
+            if [[ -n "$START_DATE" ]]; then
+              cmd+=(--start "$START_DATE")
+            fi
+            if [[ -n "$END_DATE" ]]; then
+              cmd+=(--end "$END_DATE")
+            fi
+            if [[ -n "$DAYS" ]]; then
+              cmd+=(--days "$DAYS")
+            fi
+            if [[ "$DEACTIVATE" == "true" ]]; then
+              cmd+=(--deactivate)
+            fi
+            "${cmd[@]}"
+          elif [[ "$ACTION" == "update" ]]; then
+            if [[ -z "$TRACKER_ID" ]]; then
+              echo "tracker_id e obrigatorio para action=update" >&2
+              exit 1
+            fi
+
+            cmd=(python -m app.main cfg-update --id "$TRACKER_ID")
+            if [[ -n "$WINE_NAME" ]]; then
+              cmd+=(--wine "$WINE_NAME")
+            fi
+            if [[ -n "$SITE" ]]; then
+              cmd+=(--site "$SITE")
+            fi
+            if [[ -n "$START_DATE" ]]; then
+              cmd+=(--start "$START_DATE")
+            fi
+            if [[ -n "$END_DATE" ]]; then
+              cmd+=(--end "$END_DATE")
+            fi
+            if [[ -n "$DAYS" ]]; then
+              cmd+=(--days "$DAYS")
+            fi
+            if [[ "$ACTIVATE" == "true" ]]; then
+              cmd+=(--activate)
+            fi
+            if [[ "$DEACTIVATE" == "true" ]]; then
+              cmd+=(--deactivate)
+            fi
+            "${cmd[@]}"
+          elif [[ "$ACTION" == "remove" ]]; then
+            if [[ -z "$TRACKER_ID" ]]; then
+              echo "tracker_id e obrigatorio para action=remove" >&2
+              exit 1
+            fi
+            python -m app.main cfg-remove --id "$TRACKER_ID"
+          else
+            echo "Acao invalida: $ACTION" >&2
+            exit 1
+          fi
+
+      - name: Sync trackers to state
+        run: python -m app.main sync-trackers
+
+      - name: Show trackers
+        run: python -m app.main cfg-list
+
+      - name: Commit config/state changes
+        run: |
+          if [[ -n "$(git status --porcelain config/trackers.yaml data/state.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add config/trackers.yaml data/state.json
+            git commit -m "chore: tracker admin action (${{ inputs.action }})"
+            git push
+          else
+            echo "No changes to commit"
+          fi
